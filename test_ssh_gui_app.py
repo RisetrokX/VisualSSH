@@ -26,14 +26,14 @@ class SshGuiAppTests(unittest.TestCase):
                 banner_timeout=20,
             )
 
-    def test_run_ssh_command_uses_existing_client(self):
-        client = Mock()
-        client.exec_command.return_value = (None, "hello\n", "")
+    def test_run_shell_command_sends_command_to_channel(self):
+        channel = Mock()
+        channel.recv_ready.return_value = False
 
-        output = ssh_gui_app.run_ssh_command(client, "uname -a")
+        output = ssh_gui_app.run_shell_command(channel, "cd VisualSSH")
 
-        self.assertEqual(output, "hello\n")
-        client.exec_command.assert_called_once_with("uname -a")
+        self.assertEqual(output, "")
+        channel.send.assert_called_once_with("cd VisualSSH\n")
 
 
 if __name__ == "__main__":

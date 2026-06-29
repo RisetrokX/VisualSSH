@@ -1,3 +1,4 @@
+import time
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 import paramiko
@@ -17,17 +18,26 @@ def connect_ssh_client(host, port, username, password):
     return client
 
 
-def run_ssh_command(client, command):
-    _, stdout, stderr = client.exec_command(command)
-    output = stdout.read() if hasattr(stdout, "read") else stdout
-    error_output = stderr.read() if hasattr(stderr, "read") else stderr
-    if isinstance(output, bytes):
-        output = output.decode("utf-8", errors="replace")
-    if isinstance(error_output, bytes):
-        error_output = error_output.decode("utf-8", errors="replace")
-    if error_output:
-        return output + error_output
-    return output
+def start_shell_session(client):
+    channel = client.invoke_shell(term="xterm", width=120, height=40)
+    channel.settimeout(0.2)
+    return channel
+
+
+def run_shell_command(channel, command):
+    channel.send(command + "\n")
+    output_parts = []
+    deadline = time.time() + 1.5
+    while time.time() < deadline:
+        if channel.recv_ready():
+            data = channel.recv(4096)
+            if isinstance(data, bytes):
+                data = data.decode("utf-8", errors="replace")
+            output_parts.append(data)
+            deadline = time.time() + 1.5
+        else:
+            time.sleep(0.05)
+    return "".join(output_parts)
 
 
 class SshGuiApp(tk.Tk):
@@ -38,6 +48,7 @@ class SshGuiApp(tk.Tk):
         self.minsize(820, 600)
         self.configure(bg="#0f172a")
         self.client = None
+        self.shell_channel = None
         self.create_widgets()
 
     def create_widgets(self):
@@ -107,6 +118,9 @@ class SshGuiApp(tk.Tk):
         self.run_command()
 
     def disconnect(self):
+        if self.shell_channel is not None:
+            self.shell_channel.close()
+            self.shell_channel = None
         if self.client is not None:
             self.client.close()
             self.client = None
@@ -135,9 +149,13 @@ class SshGuiApp(tk.Tk):
                 self.output.insert(tk.END, f"Connecting to {host}:{port}...\n")
                 self.update_idletasks()
                 self.client = connect_ssh_client(host, port, username, password)
+                self.shell_channel = start_shell_session(self.client)
                 self.output.insert(tk.END, "Connected.\n")
+            elif self.shell_channel is None:
+                self.shell_channel = start_shell_session(self.client)
 
-            result = run_ssh_command(self.client, command)
+            self.output.insert(tk.END, f"$ {command}\n")
+            result = run_shell_command(self.shell_channel, command)
             self.output.insert(tk.END, result)
         except Exception as exc:
             self.output.insert(tk.END, f"ERROR: {exc}\n")
