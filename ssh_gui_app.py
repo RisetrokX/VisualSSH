@@ -3,7 +3,7 @@ from tkinter import messagebox, scrolledtext, ttk
 import paramiko
 
 
-def run_ssh_command(host, port, username, password, command):
+def connect_ssh_client(host, port, username, password):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(
@@ -14,35 +14,50 @@ def run_ssh_command(host, port, username, password, command):
         timeout=10,
         banner_timeout=20,
     )
-    try:
-        _, stdout, stderr = client.exec_command(command)
-        output = stdout.read() if hasattr(stdout, "read") else stdout
-        error_output = stderr.read() if hasattr(stderr, "read") else stderr
-        if isinstance(output, bytes):
-            output = output.decode("utf-8", errors="replace")
-        if isinstance(error_output, bytes):
-            error_output = error_output.decode("utf-8", errors="replace")
-        if error_output:
-            return output + error_output
-        return output
-    finally:
-        client.close()
+    return client
+
+
+def run_ssh_command(client, command):
+    _, stdout, stderr = client.exec_command(command)
+    output = stdout.read() if hasattr(stdout, "read") else stdout
+    error_output = stderr.read() if hasattr(stderr, "read") else stderr
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    if isinstance(error_output, bytes):
+        error_output = error_output.decode("utf-8", errors="replace")
+    if error_output:
+        return output + error_output
+    return output
 
 
 class SshGuiApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("SSH GUI Client")
-        self.geometry("820x620")
-        self.minsize(780, 560)
-
-        self.configure(padx=16, pady=16)
-
+        self.title("VisualSSH")
+        self.geometry("900x680")
+        self.minsize(820, 600)
+        self.configure(bg="#0f172a")
+        self.client = None
         self.create_widgets()
 
     def create_widgets(self):
-        main = ttk.Frame(self)
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("TFrame", background="#0f172a")
+        style.configure("TLabelframe", background="#0f172a", foreground="#e2e8f0")
+        style.configure("TLabelframe.Label", background="#0f172a", foreground="#e2e8f0")
+        style.configure("TLabel", background="#0f172a", foreground="#e2e8f0")
+        style.configure("TEntry", fieldbackground="#111827", foreground="#f8fafc")
+        style.configure("TButton", background="#2563eb", foreground="#ffffff")
+        style.map("TButton", background=[("active", "#1d4ed8")])
+
+        main = ttk.Frame(self, padding=16)
         main.pack(fill="both", expand=True)
+
+        header = ttk.Frame(main)
+        header.pack(fill="x", pady=(0, 12))
+        ttk.Label(header, text="VisualSSH", font=("Segoe UI", 20, "bold")).pack(anchor="w")
+        ttk.Label(header, text="A polished GUI for running SSH commands", foreground="#94a3b8").pack(anchor="w")
 
         form = ttk.LabelFrame(main, text="Connection")
         form.pack(fill="x", padx=4, pady=(0, 10))
@@ -72,19 +87,30 @@ class SshGuiApp(tk.Tk):
         self.command_entry = ttk.Entry(command_frame)
         self.command_entry.pack(fill="x", pady=(4, 0))
         self.command_entry.insert(0, "uname -a")
+        self.command_entry.bind("<Return>", self.on_enter_pressed)
 
         button_row = ttk.Frame(main)
         button_row.pack(fill="x", pady=(6, 8))
-        ttk.Button(button_row, text="Connect and Run", command=self.run_command).pack(side="left")
+        ttk.Button(button_row, text="Connect / Run", command=self.run_command).pack(side="left")
+        ttk.Button(button_row, text="Disconnect", command=self.disconnect).pack(side="left", padx=(8, 0))
         ttk.Button(button_row, text="Clear Output", command=self.clear_output).pack(side="left", padx=(8, 0))
 
         output_frame = ttk.LabelFrame(main, text="Output")
         output_frame.pack(fill="both", expand=True)
-        self.output = scrolledtext.ScrolledText(output_frame, wrap=tk.WORD, font=("Consolas", 10))
+        self.output = scrolledtext.ScrolledText(output_frame, wrap=tk.WORD, font=("Consolas", 10), bg="#020617", fg="#f8fafc", insertbackground="#f8fafc")
         self.output.pack(fill="both", expand=True, padx=6, pady=6)
 
     def clear_output(self):
         self.output.delete("1.0", tk.END)
+
+    def on_enter_pressed(self, event=None):
+        self.run_command()
+
+    def disconnect(self):
+        if self.client is not None:
+            self.client.close()
+            self.client = None
+        self.output.insert(tk.END, "Disconnected.\n")
 
     def run_command(self):
         host = self.entries["host"].get().strip()
@@ -103,12 +129,15 @@ class SshGuiApp(tk.Tk):
             messagebox.showerror("Invalid port", "Port must be a number.")
             return
 
-        self.output.delete("1.0", tk.END)
-        self.output.insert(tk.END, f"Connecting to {host}:{port}...\n")
-        self.update_idletasks()
-
         try:
-            result = run_ssh_command(host, port, username, password, command)
+            if self.client is None:
+                self.output.delete("1.0", tk.END)
+                self.output.insert(tk.END, f"Connecting to {host}:{port}...\n")
+                self.update_idletasks()
+                self.client = connect_ssh_client(host, port, username, password)
+                self.output.insert(tk.END, "Connected.\n")
+
+            result = run_ssh_command(self.client, command)
             self.output.insert(tk.END, result)
         except Exception as exc:
             self.output.insert(tk.END, f"ERROR: {exc}\n")
