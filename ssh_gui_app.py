@@ -1,3 +1,4 @@
+import re
 import time
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
@@ -24,6 +25,16 @@ def start_shell_session(client):
     return channel
 
 
+def clean_terminal_output(text):
+    text = text.replace("\r", "\n")
+    text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+    text = re.sub(r"\x1b\][^\x07]*(?:\x07|\x1b\\)", "", text)
+    text = text.replace("\x08", "")
+    text = text.replace("\x1b", "")
+    text = text.replace("\u001b", "")
+    return text
+
+
 def run_shell_command(channel, command):
     channel.send(command + "\n")
     output_parts = []
@@ -37,7 +48,7 @@ def run_shell_command(channel, command):
             deadline = time.time() + 1.5
         else:
             time.sleep(0.05)
-    return "".join(output_parts)
+    return clean_terminal_output("".join(output_parts))
 
 
 class SshGuiApp(tk.Tk):
